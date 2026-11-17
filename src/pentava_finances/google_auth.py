@@ -97,7 +97,16 @@ def exchange_code(code: str, state: str) -> Credentials:
         if row is None or row['expires'] <= time.time() or not row['verifier']:
             raise GoogleOAuthError("Google authorization exchange expired. Start Connect Google Sheets again.")
         flow = create_google_flow(state=state, code_verifier=row['verifier'])
-        flow.fetch_token(code=code)
+        try:
+            flow.fetch_token(code=code)
+        except Warning as warning:
+            # OAuthlib raises Warning for Google's incremental-consent scope
+            # response. Accept only a verified superset of our required scopes.
+            token = getattr(warning, 'token', None)
+            granted = set(getattr(warning, 'new_scope', ()) or ())
+            if token is None or not token.get('access_token') or not set(GOOGLE_SCOPES).issubset(granted):
+                raise GoogleOAuthError("Google did not grant all required Sheets permissions. Start Connect Google Sheets again and allow the requested permissions.") from warning
+            flow.oauth2session.token = dict(token)
     except (GoogleAuthError, OAuth2Error) as error:
         raise GoogleOAuthError("Google authorization could not be completed.") from error
     return flow.credentials
