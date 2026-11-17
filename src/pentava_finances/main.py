@@ -90,14 +90,17 @@ async def google_callback(
         )
 
     cookie_name = f"google_oauth_state_{state}"
-    user_id = consume_oauth_state(state)   # returns str | None
-    if request.cookies.get(cookie_name) != state or user_id is None:
+    if request.cookies.get(cookie_name) != state:
+        raise HTTPException(status_code=400, detail="Google authorization cookie is missing. Restart Connect Google Sheets and check GOOGLE_REDIRECT_URI uses the frontend /api/auth/google/callback URL.")
+    current_user = await require_user(request)
+    user_id = consume_oauth_state(state)
+    if user_id is None:
         raise HTTPException(
             status_code=400,
             detail="Google authorization state is invalid or expired.",
         )
 
-    if (await require_user(request)).id != user_id:
+    if current_user.id != user_id:
         raise HTTPException(status_code=403, detail='Google authorization belongs to another session.')
 
     try:
