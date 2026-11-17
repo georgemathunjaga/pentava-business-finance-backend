@@ -58,16 +58,7 @@ def get_sheet_values(
     )
 
 
-TRANSACTION_HEADERS = [
-    "Date",
-    "Amount",
-    "Currency",
-    "Type",
-    "Category",
-    "Description",
-    "Reference",
-    "Recorded By",
-]
+TRANSACTION_HEADERS = ['Transaction Code', 'Transaction type', 'Recipient', 'Amount', 'Transaction Cost', 'Fuliza Cost', 'Transaction cost', 'Date_Time']
 
 # Column widths in pixels for each header above
 _COLUMN_WIDTHS = [110, 100, 90, 100, 120, 260, 140, 140]

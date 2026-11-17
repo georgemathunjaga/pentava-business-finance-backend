@@ -22,6 +22,7 @@ from .google_auth import (
     save_credentials,
 )
 from .google_sheets import (
+    TRANSACTION_HEADERS,
     append_sheet_row,
     create_spreadsheet,
     get_sheet_values,
@@ -29,6 +30,7 @@ from .google_sheets import (
     list_spreadsheets,
 )
 from .pairing_router import businesses_router, pairing_router
+from .webhooks import router as webhooks_router
 from .identity import router as identity_router, require_user, set_cookie
 from .transactions import router as transactions_router
 
@@ -43,6 +45,7 @@ app.include_router(crypto_router)
 app.include_router(identity_router)
 app.include_router(pairing_router)
 app.include_router(businesses_router)
+app.include_router(webhooks_router)
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -157,7 +160,7 @@ async def create_google_sheet(
         "url": result["spreadsheetUrl"],
         "title": result["properties"]["title"],
         "sheet_name": result["sheets"][0]["properties"]["title"],
-        "headers": ["Date", "Amount", "Currency", "Type", "Category", "Description", "Reference", "Recorded By"],
+        "headers": TRANSACTION_HEADERS,
     }
 
 
