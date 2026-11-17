@@ -23,6 +23,7 @@ from .google_auth import (
 )
 from .google_sheets import (
     append_sheet_row,
+    create_spreadsheet,
     get_sheet_values,
     get_spreadsheet,
     list_spreadsheets,
@@ -116,6 +117,11 @@ async def google_callback(
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────
 
+class CreateSpreadsheetRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    sheet_name: str = Field(default="Transactions", min_length=1, max_length=100)
+
+
 class SheetRow(BaseModel):
     values: list[str | int | float | bool | None] = Field(min_length=1)
 
@@ -128,6 +134,31 @@ def _raise_google_api_error(error: HttpError) -> None:
             detail="Google could not access the requested resource.",
         ) from error
     raise HTTPException(status_code=502, detail="Google Sheets service request failed.") from error
+
+
+@app.post("/google/sheets", status_code=201, tags=["Google Sheets"])
+async def create_google_sheet(
+    body: CreateSpreadsheetRequest,
+    user_id: str = Depends(_google_user_id),
+) -> dict[str, Any]:
+    try:
+        result = create_spreadsheet(body.title, body.sheet_name, user_id)
+    except GoogleConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except GoogleNotConnectedError as error:
+        raise HTTPException(status_code=401, detail=str(error)) from error
+    except GoogleAuthError as error:
+        raise HTTPException(status_code=401, detail="Google credentials are invalid.") from error
+    except HttpError as error:
+        _raise_google_api_error(error)
+    return {
+        "success": True,
+        "spreadsheet_id": result["spreadsheetId"],
+        "url": result["spreadsheetUrl"],
+        "title": result["properties"]["title"],
+        "sheet_name": result["sheets"][0]["properties"]["title"],
+        "headers": ["Date", "Amount", "Currency", "Type", "Category", "Description", "Reference", "Recorded By"],
+    }
 
 
 @app.get("/google/sheets", tags=["Google Sheets"])

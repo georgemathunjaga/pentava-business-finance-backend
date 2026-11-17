@@ -371,6 +371,52 @@ Requires the Google account to be connected first (see Section 4).
 
 ---
 
+### POST /google/sheets
+
+Create a new Google Spreadsheet pre-formatted with the standard transaction columns. The header row is bold, dark-background, and frozen. All columns are sized to fit their content.
+
+```http
+POST /google/sheets
+Content-Type: application/json
+
+{
+  "title": "Pentava Expenses — Jan 2025",
+  "sheet_name": "Transactions"
+}
+```
+
+| Field | Type | Required | Default |
+|---|---|---|---|
+| `title` | string | Yes | — |
+| `sheet_name` | string | No | `"Transactions"` |
+
+**Response 201:**
+```json
+{
+  "success": true,
+  "spreadsheet_id": "1BxiMVs...",
+  "url": "https://docs.google.com/spreadsheets/d/1BxiMVs.../edit",
+  "title": "Pentava Expenses — Jan 2025",
+  "sheet_name": "Transactions",
+  "headers": ["Date", "Amount", "Currency", "Type", "Category", "Description", "Reference", "Recorded By"]
+}
+```
+
+**Pre-filled columns:**
+
+| Column | Purpose |
+|---|---|
+| Date | Transaction date (YYYY-MM-DD) |
+| Amount | Numeric value |
+| Currency | ISO code e.g. `KES`, `ZAR` |
+| Type | `income` or `expense` |
+| Category | e.g. `fuel`, `meals`, `salary` |
+| Description | Free-text note |
+| Reference | Invoice / receipt number |
+| Recorded By | Device or user label |
+
+---
+
 ### GET /google/sheets
 
 List all Google Sheets spreadsheets accessible to the connected account.

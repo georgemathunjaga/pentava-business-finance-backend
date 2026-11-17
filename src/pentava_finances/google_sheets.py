@@ -58,6 +58,105 @@ def get_sheet_values(
     )
 
 
+TRANSACTION_HEADERS = [
+    "Date",
+    "Amount",
+    "Currency",
+    "Type",
+    "Category",
+    "Description",
+    "Reference",
+    "Recorded By",
+]
+
+# Column widths in pixels for each header above
+_COLUMN_WIDTHS = [110, 100, 90, 100, 120, 260, 140, 140]
+
+
+def create_spreadsheet(
+    title: str,
+    sheet_name: str = "Transactions",
+    user_id: str = DEVELOPMENT_USER_ID,
+) -> dict:
+    """Create a new spreadsheet pre-formatted with the standard transaction headers."""
+    service = get_google_service("sheets", "v4", user_id)
+
+    header_values = [TRANSACTION_HEADERS]
+
+    # Build the spreadsheet with one named sheet and header row in one request
+    body = {
+        "properties": {"title": title},
+        "sheets": [
+            {
+                "properties": {"title": sheet_name, "index": 0},
+                "data": [
+                    {
+                        "startRow": 0,
+                        "startColumn": 0,
+                        "rowData": [
+                            {
+                                "values": [
+                                    {
+                                        "userEnteredValue": {"stringValue": h},
+                                        "userEnteredFormat": {
+                                            "textFormat": {"bold": True},
+                                            "backgroundColor": {
+                                                "red": 0.129,
+                                                "green": 0.129,
+                                                "blue": 0.129,
+                                            },
+                                            "foregroundColor": {
+                                                "red": 1.0,
+                                                "green": 1.0,
+                                                "blue": 1.0,
+                                            },
+                                            "horizontalAlignment": "CENTER",
+                                        },
+                                    }
+                                    for h in TRANSACTION_HEADERS
+                                ]
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    spreadsheet = service.spreadsheets().create(body=body, fields="spreadsheetId,spreadsheetUrl,properties,sheets").execute()
+
+    # Freeze header row and set column widths in a followup batchUpdate
+    sheet_id = spreadsheet["sheets"][0]["properties"]["sheetId"]
+    requests = [
+        {
+            "updateSheetProperties": {
+                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+                "fields": "gridProperties.frozenRowCount",
+            }
+        }
+    ] + [
+        {
+            "updateDimensionProperties": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "COLUMNS",
+                    "startIndex": i,
+                    "endIndex": i + 1,
+                },
+                "properties": {"pixelSize": w},
+                "fields": "pixelSize",
+            }
+        }
+        for i, w in enumerate(_COLUMN_WIDTHS)
+    ]
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet["spreadsheetId"],
+        body={"requests": requests},
+    ).execute()
+
+    return spreadsheet
+
+
 def append_sheet_row(
     spreadsheet_id: str,
     sheet_range: str,
