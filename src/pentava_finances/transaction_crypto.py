@@ -45,14 +45,36 @@ def _key_paths() -> tuple[Path, Path, str]:
     return public_path, private_path, key_id
 
 
-def load_encryption_keys() -> EncryptionKeys:
+def _load_key_bytes() -> tuple[bytes, bytes, str]:
+    """Return (public_pem, private_pem, key_id).
+    Prefers PEM env vars (for Railway/cloud deployments) then falls back to files.
+    """
+    key_id = os.getenv("ENCRYPTION_KEY_ID", "local-v1")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", key_id):
+        raise EncryptionConfigurationError("ENCRYPTION_KEY_ID has an invalid format.")
+
+    pub_pem = os.getenv("ENCRYPTION_PUBLIC_KEY_PEM", "").strip()
+    priv_pem = os.getenv("ENCRYPTION_PRIVATE_KEY_PEM", "").strip()
+    if pub_pem and priv_pem:
+        return pub_pem.encode(), priv_pem.encode(), key_id
+
+    # Fall back to file paths
+    _, _, _ = _key_paths()   # validates paths/key_id via existing helper
     public_path, private_path, key_id = _key_paths()
     try:
-        public_key = serialization.load_pem_public_key(public_path.read_bytes())
-        private_key = serialization.load_pem_private_key(
-            private_path.read_bytes(),
-            password=None,
-        )
+        return public_path.read_bytes(), private_path.read_bytes(), key_id
+    except OSError as error:
+        raise EncryptionConfigurationError(
+            "Encryption keys are unavailable. Set ENCRYPTION_PUBLIC_KEY_PEM and "
+            "ENCRYPTION_PRIVATE_KEY_PEM env vars, or generate a local key pair."
+        ) from error
+
+
+def load_encryption_keys() -> EncryptionKeys:
+    pub_bytes, priv_bytes, key_id = _load_key_bytes()
+    try:
+        public_key = serialization.load_pem_public_key(pub_bytes)
+        private_key = serialization.load_pem_private_key(priv_bytes, password=None)
     except (OSError, TypeError, ValueError) as error:
         raise EncryptionConfigurationError(
             "Encryption keys are unavailable or invalid. Generate the local key pair."
