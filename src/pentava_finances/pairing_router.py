@@ -10,12 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .device_tokens import DEVICE_ACCESS_TTL, issue_device_tokens, verify_device_token
 from .pairing import PAIRING_TTL, PairingSession, create_pairing_session, get_session
-from .pocketbase import (
-    PocketBaseRequestError,
-    PocketBaseUnavailableError,
-    PocketBaseUser,
-    authenticate_user,
-)
+from .identity import User, require_user
+
 from .storage import (
     create_business,
     create_device,
@@ -35,22 +31,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
-async def _require_web_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> PocketBaseUser:
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="A PocketBase bearer token is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    try:
-        return await authenticate_user(credentials.credentials)
-    except PocketBaseRequestError as error:
-        code = 401 if error.status_code in (401, 403) else 502
-        raise HTTPException(status_code=code, detail="PocketBase rejected the token.") from error
-    except PocketBaseUnavailableError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+_require_web_user = require_user
 
 
 def _require_device_user(
@@ -95,7 +76,7 @@ class PatchBusinessRequest(BaseModel):
 @businesses_router.post("", status_code=201)
 async def create_business_endpoint(
     body: CreateBusinessRequest,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     business = {
         "id": f"biz_{uuid.uuid4().hex[:12]}",
@@ -115,7 +96,7 @@ async def create_business_endpoint(
 @businesses_router.get("/{business_id}")
 async def get_business_endpoint(
     business_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     biz = _assert_owned(business_id, user.id)
     return biz
@@ -125,7 +106,7 @@ async def get_business_endpoint(
 async def patch_business_endpoint(
     business_id: str,
     body: PatchBusinessRequest,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     biz = _assert_owned(business_id, user.id)
     biz.update(body.model_dump(exclude_none=True))
@@ -135,7 +116,7 @@ async def patch_business_endpoint(
 @businesses_router.get("/{business_id}/onboarding")
 async def get_onboarding(
     business_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     _assert_owned(business_id, user.id)
     devices = list_business_devices(business_id)
@@ -152,7 +133,7 @@ async def get_onboarding(
 @businesses_router.get("/{business_id}/devices")
 async def list_devices_endpoint(
     business_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     _assert_owned(business_id, user.id)
     return {"items": list_business_devices(business_id)}
@@ -162,7 +143,7 @@ async def list_devices_endpoint(
 async def revoke_device_endpoint(
     business_id: str,
     device_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> None:
     _assert_owned(business_id, user.id)
     device = get_device(device_id)
@@ -215,7 +196,7 @@ class RefreshDeviceTokenRequest(BaseModel):
 @pairing_router.post("/moneychat/pairing-sessions", status_code=201)
 async def create_pairing_session_endpoint(
     body: CreatePairingRequest,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     biz = _assert_owned(body.business_id, user.id)
     session = create_pairing_session(
@@ -308,7 +289,7 @@ async def approve_pairing_session(
 @pairing_router.get("/moneychat/pairing-sessions/{session_id}")
 async def poll_pairing_session(
     session_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> dict[str, Any]:
     """Browser polls this until status becomes linked/rejected/expired."""
     session = get_session(session_id)
@@ -344,7 +325,7 @@ async def reject_pairing_session(
 @pairing_router.delete("/moneychat/pairing-sessions/{session_id}", status_code=204)
 async def cancel_pairing_session(
     session_id: str,
-    user: PocketBaseUser = Depends(_require_web_user),
+    user: User = Depends(_require_web_user),
 ) -> None:
     session = get_session(session_id)
     if not session:

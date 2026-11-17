@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -27,12 +28,9 @@ from .google_sheets import (
     list_spreadsheets,
 )
 from .pairing_router import businesses_router, pairing_router
-from .pocketbase import (
-    PocketBaseRequestError,
-    PocketBaseUnavailableError,
-    authenticate_user,
-)
+from .identity import router as identity_router, require_user, set_cookie
 from .transactions import router as transactions_router
+
 
 app = FastAPI(
     title="Pentava Business Finances API",
@@ -41,6 +39,7 @@ app = FastAPI(
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.include_router(transactions_router)
 app.include_router(crypto_router)
+app.include_router(identity_router)
 app.include_router(pairing_router)
 app.include_router(businesses_router)
 
@@ -49,20 +48,8 @@ _bearer = HTTPBearer(auto_error=False)
 
 # ── Shared Google user resolver ───────────────────────────────────────────────
 
-async def _google_user_id(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> str:
-    """Return the PocketBase user ID for Google credential lookup.
-    Falls back to DEVELOPMENT_USER_ID when no token is supplied.
-    """
-    if credentials is not None:
-        try:
-            user = await authenticate_user(credentials.credentials)
-            return user.id
-        except (PocketBaseRequestError, PocketBaseUnavailableError):
-            pass
-    return DEVELOPMENT_USER_ID
+async def _google_user_id(request: Request) -> str:
+    return (await require_user(request)).id
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -75,43 +62,25 @@ def health_check() -> dict[str, str]:
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
 @app.get("/auth/google", tags=["Google"])
-async def google_login(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> RedirectResponse:
-    # Bind the OAuth session to the authenticated user when a token is provided
-    user_id = DEVELOPMENT_USER_ID
-    if credentials is not None:
-        try:
-            user = await authenticate_user(credentials.credentials)
-            user_id = user.id
-        except (PocketBaseRequestError, PocketBaseUnavailableError):
-            pass
-
+async def google_login(request: Request) -> RedirectResponse:
+    user_id = (await require_user(request)).id
     try:
         authorization_url, state = get_authorization_url(user_id)
     except GoogleConfigurationError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
     response = RedirectResponse(authorization_url)
-    response.set_cookie(
-        key=f"google_oauth_state_{state}",
-        value=state,
-        max_age=600,
-        httponly=True,
-        secure=authorization_url.startswith("https://"),
-        samesite="lax",
-    )
+    set_cookie(response, f"google_oauth_state_{state}", state, request, 600)
     return response
 
 
 @app.get("/auth/google/callback", tags=["Google"])
-def google_callback(
+async def google_callback(
     request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
-) -> dict[str, Any]:
+) -> RedirectResponse:
     if error:
         raise HTTPException(status_code=400, detail="Google authorization was denied.")
     if not code or not state:
@@ -128,13 +97,18 @@ def google_callback(
             detail="Google authorization state is invalid or expired.",
         )
 
+    if (await require_user(request)).id != user_id:
+        raise HTTPException(status_code=403, detail='Google authorization belongs to another session.')
+
     try:
         credentials = exchange_code(code, state)
         save_credentials(user_id, credentials)
     except (GoogleConfigurationError, GoogleOAuthError) as exception:
         raise HTTPException(status_code=400, detail=str(exception)) from exception
 
-    return {"success": True, "message": "Google account connected successfully.", "user_id": user_id}
+    response = RedirectResponse(os.getenv("FRONTEND_URL", "http://localhost:15684").rstrip("/") + "/setup/", status_code=303)
+    response.delete_cookie(cookie_name, path="/")
+    return response
 
 
 # ── Google Sheets ─────────────────────────────────────────────────────────────

@@ -5,12 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from .pocketbase import (
-    PocketBaseRequestError,
-    PocketBaseUnavailableError,
-    PocketBaseUser,
-    authenticate_user,
-)
+from .identity import User, require_user
+
 from .transaction_crypto import (
     EncryptionConfigurationError,
     TransactionDecryptionError,
@@ -35,27 +31,7 @@ class DecryptRequest(BaseModel):
     envelope: str = Field(min_length=1)
 
 
-async def _require_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> PocketBaseUser:
-    if credentials is None:
-        raise HTTPException(
-            status_code=401,
-            detail="A PocketBase bearer token is required.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    try:
-        return await authenticate_user(credentials.credentials)
-    except PocketBaseRequestError as error:
-        status_code = 401 if error.status_code in (401, 403) else 502
-        detail = (
-            "PocketBase rejected the bearer token."
-            if status_code == 401
-            else "PocketBase authentication failed."
-        )
-        raise HTTPException(status_code=status_code, detail=detail) from error
-    except PocketBaseUnavailableError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+_require_user = require_user
 
 
 @router.get("/public-key")
@@ -91,7 +67,7 @@ def crypto_status() -> dict[str, Any]:
 @router.post("/encrypt")
 async def encrypt_data(
     body: EncryptRequest,
-    _user: PocketBaseUser = Depends(_require_user),
+    _user: User = Depends(_require_user),
 ) -> dict[str, str]:
     """Encrypt a JSON payload. Returns a compact encrypted envelope."""
     try:
@@ -104,7 +80,7 @@ async def encrypt_data(
 @router.post("/decrypt")
 async def decrypt_data(
     body: DecryptRequest,
-    _user: PocketBaseUser = Depends(_require_user),
+    _user: User = Depends(_require_user),
 ) -> dict[str, Any]:
     """Decrypt an envelope produced by /crypto/encrypt."""
     try:
