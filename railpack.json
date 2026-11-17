@@ -1,5 +1,5 @@
 {
   "deploy": {
-    "startCommand": "uvicorn pentava_finances.main:app --host 0.0.0.0 --port $PORT"
+    "startCommand": "PYTHONPATH=/app/src uvicorn pentava_finances.main:app --host 0.0.0.0 --port $PORT"
   }
 }
