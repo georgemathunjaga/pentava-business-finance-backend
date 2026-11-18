@@ -22,38 +22,50 @@ def _verify_secret(secret_header: str | None) -> None:
 
 class InboundMessage(BaseModel):
     model_config = ConfigDict(extra="allow")
-    type: str = Field(default="message", min_length=1, max_length=60)
+    type: str = Field(default="transaction", min_length=1, max_length=60)
     business_id: str | None = None
     device_id: str | None = None
+    # App can send these directly — no pre-configuration needed
+    spreadsheet_id: str | None = None
+    sheet_name: str | None = None
+    user_id: str | None = None
     payload: dict[str, Any]
 
 
 def _write_to_sheet(body: InboundMessage) -> str | None:
-    """Append the message to the business's linked Google Sheet. Returns error string or None."""
-    if not body.business_id:
-        return "no business_id"
+    """Append to the sheet. Resolves spreadsheet_id from payload first, then business record."""
     try:
         from .storage import get_business
         from .google_sheets import append_sheet_row
         from .google_auth import GoogleNotConnectedError
         from datetime import datetime, timezone
 
-        biz = get_business(body.business_id)
-        if not biz:
-            return "business not found"
+        # Resolve spreadsheet_id: payload wins, fall back to business record
+        spreadsheet_id = body.spreadsheet_id
+        sheet_name = body.sheet_name or "Transactions"
+        user_id = body.user_id
+        currency = "KES"
 
-        spreadsheet_id = biz.get("spreadsheet_id")
+        if not spreadsheet_id and body.business_id:
+            biz = get_business(body.business_id)
+            if not biz:
+                return "business not found"
+            spreadsheet_id = biz.get("spreadsheet_id")
+            sheet_name = body.sheet_name or biz.get("sheet_name", "Transactions")
+            user_id = user_id or biz.get("owner_id")
+            currency = biz.get("currency", "KES")
+
         if not spreadsheet_id:
-            return "no spreadsheet linked"
+            return "no spreadsheet_id — send it in the payload or link one to the business"
 
-        user_id = biz.get("owner_id")
-        sheet_name = biz.get("sheet_name", "Transactions")
+        if not user_id:
+            return "no user_id — send it in the payload or link the business"
+
         p = body.payload
-
         row = [
             p.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             p.get("amount", ""),
-            p.get("currency") or biz.get("currency", "KES"),
+            p.get("currency") or currency,
             p.get("type", "expense"),
             p.get("category", ""),
             p.get("description") or p.get("note", ""),
