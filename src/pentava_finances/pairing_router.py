@@ -323,11 +323,20 @@ async def approve_pairing_session(
     session.device_id = device["id"]
     session._credentials = credentials
 
+    biz = get_business(session.business_id)
+
     return {
         "status": "linked",
         "business_id": session.business_id,
         "device": {"id": device["id"], "name": device["name"]},
         "device_credentials": credentials,
+        "sync_config": {
+            "spreadsheet_id": biz.get("spreadsheet_id") if biz else None,
+            "sheet_name": biz.get("sheet_name", "Transactions") if biz else "Transactions",
+            "user_id": session.user_id,
+            "currency": biz.get("currency", "KES") if biz else "KES",
+            "webhook_url": "/webhooks/inbound",
+        },
     }
 
 
