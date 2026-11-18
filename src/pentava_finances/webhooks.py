@@ -58,6 +58,47 @@ class InboundMessage(BaseModel):
     payload: dict[str, Any]
 
 
+def _write_to_sheet(body: InboundMessage) -> str | None:
+    """Append the message to the business's linked Google Sheet. Returns error string or None."""
+    if not body.business_id:
+        return "no business_id"
+    try:
+        from .storage import get_business
+        from .google_sheets import append_sheet_row
+        from .google_auth import GoogleNotConnectedError
+        from datetime import datetime, timezone
+
+        biz = get_business(body.business_id)
+        if not biz:
+            return "business not found"
+
+        spreadsheet_id = biz.get("spreadsheet_id")
+        if not spreadsheet_id:
+            return "no spreadsheet linked"
+
+        user_id = biz.get("owner_id")
+        sheet_name = biz.get("sheet_name", "Transactions")
+        p = body.payload
+
+        row = [
+            p.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            p.get("amount", ""),
+            p.get("currency") or biz.get("currency", "KES"),
+            p.get("type", "expense"),
+            p.get("category", ""),
+            p.get("description") or p.get("note", ""),
+            p.get("reference", ""),
+            p.get("recorded_by") or body.device_id or "",
+        ]
+
+        append_sheet_row(spreadsheet_id, f"{sheet_name}!A:H", row, user_id)
+        return None
+    except GoogleNotConnectedError:
+        return "google not connected"
+    except Exception as e:
+        return str(e)
+
+
 @router.post("/inbound", status_code=200)
 async def inbound_webhook(
     body: InboundMessage,
@@ -82,7 +123,14 @@ async def inbound_webhook(
             ),
         )
 
-    return {"id": message_id, "status": "received", "received_at": now}
+    sheet_error = _write_to_sheet(body)
+
+    return {
+        "id": message_id,
+        "status": "received",
+        "received_at": now,
+        "sheet": "ok" if sheet_error is None else f"skipped: {sheet_error}",
+    }
 
 
 @router.get("/inbound", status_code=200)
