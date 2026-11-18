@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .device_tokens import DEVICE_ACCESS_TTL, issue_device_tokens, verify_device_token
 from .pairing import PAIRING_TTL, PairingSession, create_pairing_session, get_session
 from .identity import User, require_user
+from .reports import compute_report, fetch_transactions
 
 from .storage import (
     create_business,
@@ -69,6 +70,8 @@ class PatchBusinessRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     currency: str | None = None
     week_starts_on: str | None = None
+    spreadsheet_id: str | None = None
+    sheet_name: str | None = None
 
 
 # ── Business endpoints ────────────────────────────────────────────────────────
@@ -128,6 +131,48 @@ async def get_onboarding(
         "sheet_configured": False,
         "next_step": next_step,
     }
+
+
+@businesses_router.get("/{business_id}/reports")
+async def get_business_reports(
+    business_id: str,
+    period: str = "month",
+    spreadsheet_id: str | None = None,
+    sheet_name: str = "Transactions",
+    user: User = Depends(_require_web_user),
+) -> dict[str, Any]:
+    biz = _assert_owned(business_id, user.id)
+
+    sid = spreadsheet_id or biz.get("spreadsheet_id")
+    if not sid:
+        raise HTTPException(
+            status_code=422,
+            detail="No spreadsheet linked to this business. Pass spreadsheet_id or link one via PATCH /businesses/{id}.",
+        )
+
+    if period not in ("today", "week", "month", "year", "all"):
+        raise HTTPException(status_code=422, detail="period must be one of: today, week, month, year, all")
+
+    sname = sheet_name or biz.get("sheet_name", "Transactions")
+
+    from .google_auth import GoogleNotConnectedError
+    from .config import GoogleConfigurationError
+    from googleapiclient.errors import HttpError
+    from google.auth.exceptions import GoogleAuthError
+
+    try:
+        transactions = fetch_transactions(sid, sname, user.id)
+    except GoogleNotConnectedError:
+        raise HTTPException(status_code=401, detail="Google account is not connected.")
+    except GoogleConfigurationError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except GoogleAuthError:
+        raise HTTPException(status_code=401, detail="Google credentials are invalid.")
+    except HttpError as e:
+        status = e.resp.status if e.resp else 502
+        raise HTTPException(status_code=status, detail="Could not read the spreadsheet.")
+
+    return compute_report(transactions, period=period, currency=biz.get("currency", "KES"))
 
 
 @businesses_router.get("/{business_id}/devices")
