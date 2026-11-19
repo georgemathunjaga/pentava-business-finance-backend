@@ -72,8 +72,9 @@ def test_business_cookie_auth_csrf_and_google_owner_isolation(setup):
     client,claims=setup
     first=login(client,claims).json()
     assert client.post('/businesses',json={'name':'Test'},headers=ORIGIN).status_code==403
-    response=client.post('/businesses',json={'name':'Test','owner_name':'Owner'},headers={**ORIGIN,'X-Pentava-CSRF':first['csrf_token']})
+    response=client.post('/businesses',json={'name':'Test','owner_name':'Owner','phone':'+254712345678'},headers={**ORIGIN,'X-Pentava-CSRF':first['csrf_token']})
     assert response.status_code==201
+    assert response.json()['phone']=='+254712345678'
     biz=response.json()
     assert biz['owner_id']==first['user']['id']
     pair=client.post('/moneychat/pairing-sessions',json={'business_id':biz['id']},headers={**ORIGIN,'X-Pentava-CSRF':first['csrf_token']})

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .device_tokens import DEVICE_ACCESS_TTL, issue_device_tokens, verify_device_token
 from .pairing import PAIRING_TTL, PairingSession, create_pairing_session, get_session
 from .identity import User, require_user
+from .transaction_events import transaction_event_stream
 from .reports import compute_report, fetch_transactions
 
 from .storage import (
@@ -61,6 +62,7 @@ class CreateBusinessRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     owner_name: str | None = None
     email: str | None = None
+    phone: str | None = Field(default=None, pattern=r"^\+?[0-9]{7,15}$")
     currency: str = "KES"
     timezone: str = "Africa/Nairobi"
 
@@ -87,6 +89,7 @@ async def create_business_endpoint(
         "owner_id": user.id,
         "owner_name": body.owner_name,
         "email": body.email,
+        "phone": body.phone,
         "currency": body.currency,
         "timezone": body.timezone,
         "week_starts_on": "monday",
@@ -114,6 +117,15 @@ async def patch_business_endpoint(
     biz = _assert_owned(business_id, user.id)
     biz.update(body.model_dump(exclude_none=True))
     return update_business(biz)
+
+
+@businesses_router.get("/{business_id}/transaction-events")
+async def business_transaction_events(
+    business_id: str,
+    user: User = Depends(_require_web_user),
+):
+    _assert_owned(business_id, user.id)
+    return transaction_event_stream(business_id)
 
 
 @businesses_router.get("/{business_id}/onboarding")
