@@ -137,3 +137,88 @@ def test_errors_clearly_when_business_is_unknown(client):
     )
 
     assert response.status_code == 422
+
+
+def test_bulk_appends_all_rows_in_one_sheets_call(client, monkeypatch):
+    storage.create_business(_business(spreadsheet_id="sheet_abc", sheet_name="Transactions"))
+
+    calls = []
+    import pentava_finances.google_sheets as google_sheets
+
+    monkeypatch.setattr(
+        google_sheets,
+        "append_sheet_rows",
+        lambda spreadsheet_id, sheet_range, rows, user_id: calls.append(
+            (spreadsheet_id, sheet_range, rows, user_id)
+        ),
+    )
+
+    response = client.post(
+        "/webhooks/inbound/bulk",
+        json={
+            "business_id": "biz_123",
+            "events": [
+                {"date": "2026-11-17", "amount": 100.0, "type": "income"},
+                {"date": "2026-11-18", "amount": 200.0, "type": "expense"},
+                {"date": "2026-11-19", "amount": 300.0, "type": "income"},
+            ],
+        },
+        headers={"x-webhook-secret": "test-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "id": response.json()["id"],
+        "appended": 3,
+    }
+    assert len(calls) == 1  # one Sheets API call for the whole batch
+    spreadsheet_id, sheet_range, rows, user_id = calls[0]
+    assert spreadsheet_id == "sheet_abc"
+    assert sheet_range == "Transactions!A:H"
+    assert user_id == "google_owner123"
+    assert len(rows) == 3
+    assert [row[1] for row in rows] == [100.0, 200.0, 300.0]
+
+
+def test_bulk_errors_clearly_when_business_has_no_spreadsheet(client):
+    storage.create_business(_business(spreadsheet_id=None))
+
+    response = client.post(
+        "/webhooks/inbound/bulk",
+        json={"business_id": "biz_123", "events": [{"amount": 100}]},
+        headers={"x-webhook-secret": "test-secret"},
+    )
+
+    assert response.status_code == 422
+    assert "spreadsheet_id" in response.json()["detail"]
+
+
+def test_bulk_rejects_empty_or_oversized_event_lists(client):
+    storage.create_business(_business(spreadsheet_id="sheet_abc"))
+
+    empty = client.post(
+        "/webhooks/inbound/bulk",
+        json={"business_id": "biz_123", "events": []},
+        headers={"x-webhook-secret": "test-secret"},
+    )
+    assert empty.status_code == 422
+
+    too_many = client.post(
+        "/webhooks/inbound/bulk",
+        json={"business_id": "biz_123", "events": [{"amount": 1}] * 2001},
+        headers={"x-webhook-secret": "test-secret"},
+    )
+    assert too_many.status_code == 422
+
+
+def test_bulk_rejects_wrong_secret(client):
+    storage.create_business(_business(spreadsheet_id="sheet_abc"))
+
+    response = client.post(
+        "/webhooks/inbound/bulk",
+        json={"business_id": "biz_123", "events": [{"amount": 1}]},
+        headers={"x-webhook-secret": "wrong"},
+    )
+
+    assert response.status_code == 401

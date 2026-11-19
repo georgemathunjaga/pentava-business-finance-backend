@@ -154,6 +154,17 @@ def append_sheet_row(
     values: list[str | int | float | bool | None],
     user_id: str = DEVELOPMENT_USER_ID,
 ) -> dict:
+    return append_sheet_rows(spreadsheet_id, sheet_range, [values], user_id)
+
+
+def append_sheet_rows(
+    spreadsheet_id: str,
+    sheet_range: str,
+    rows: list[list[str | int | float | bool | None]],
+    user_id: str = DEVELOPMENT_USER_ID,
+) -> dict:
+    """Append many rows in a single Sheets API call — one quota-costed request
+    and one spreadsheet revision, instead of one call per row."""
     service = get_google_service("sheets", "v4", user_id)
     return (
         service.spreadsheets()
@@ -164,7 +175,7 @@ def append_sheet_row(
             # RAW avoids formula injection in untrusted text fields
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
-            body={"values": [values]},
+            body={"values": rows},
         )
         .execute()
     )
