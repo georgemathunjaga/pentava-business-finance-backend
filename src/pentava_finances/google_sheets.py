@@ -90,16 +90,18 @@ def create_spreadsheet(
                                     {
                                         "userEnteredValue": {"stringValue": h},
                                         "userEnteredFormat": {
-                                            "textFormat": {"bold": True},
+                                            "textFormat": {
+                                                "bold": True,
+                                                "foregroundColor": {
+                                                    "red": 1.0,
+                                                    "green": 1.0,
+                                                    "blue": 1.0,
+                                                },
+                                            },
                                             "backgroundColor": {
                                                 "red": 0.129,
                                                 "green": 0.129,
                                                 "blue": 0.129,
-                                            },
-                                            "foregroundColor": {
-                                                "red": 1.0,
-                                                "green": 1.0,
-                                                "blue": 1.0,
                                             },
                                             "horizontalAlignment": "CENTER",
                                         },
