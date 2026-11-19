@@ -131,6 +131,7 @@ class SheetRow(BaseModel):
 
 def _raise_google_api_error(error: HttpError) -> None:
     status_code = error.resp.status if error.resp else 502
+    print(f"Google API error (status={status_code}): {error}", flush=True)
     if status_code in (401, 403, 404):
         raise HTTPException(
             status_code=status_code,
