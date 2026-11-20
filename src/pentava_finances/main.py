@@ -33,6 +33,7 @@ from .pairing_router import businesses_router, pairing_router
 from .webhooks import router as webhooks_router
 from .identity import router as identity_router, require_user, set_cookie
 from .transactions import router as transactions_router
+from .analysis_router import router as analysis_router
 
 
 app = FastAPI(
@@ -46,6 +47,7 @@ app.include_router(identity_router)
 app.include_router(pairing_router)
 app.include_router(businesses_router)
 app.include_router(webhooks_router)
+app.include_router(analysis_router)
 
 _bearer = HTTPBearer(auto_error=False)
 
